@@ -5,49 +5,63 @@ classdef ArmController
     properties (Constant)
         DEFAULT_STEPS_PER_METRE = 200;
         DEFAULT_IK_ERROR_MAX = 10^-3;
+        DEFAULT_VELOCITY_MAX = 0.1; % m/s
     end
 
     properties(Access = private)
         robot
         stepsPerMetre
         ikErrorMax
-        previousState
+        velocityMax
         currentState
-        EStopFlag
-        errorCode
-        previousPoses
         currentPose
+        nextPose
+        errorCode
+    end
+
+    properties(Access = public)
+        previousState
+        previousPoses
     end
 
     properties(Dependent)
         jointPose
+        nextState
+        EStopFlag
     end
 
     methods
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %//Constructors///////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        function self = ArmController(robot,stepsPerMetre,ikErrorMax,qInit)
+        function self = ArmController(robot,stepsPerMetre,ikErrorMax,velocityMax,qInit)
             %Instantiate class object
             %Setting member attributes to default values
             self.errorCode = 0;
-            self.EStopFlag = false;
             self.stepsPerMetre = self.DEFAULT_STEPS_PER_METRE;
             self.ikErrorMax = self.DEFAULT_IK_ERROR_MAX;
             self.currentState = armState.Init;
         
-        
-            if nargin > 0 % Just robot arm passed
+            if nargin > 0
+                % Just robot arm passed
                 self.robot = robot;
-                if nargin > 1 % Arm and steps per metre
+                if nargin > 1
+                    % Arm and steps per metre
                     self.stepsPerMetre = stepsPerMetre;
                 end
-                if nargin > 2 % Arm, steps and inv kinematic error max
+                if nargin > 2
+                    % Arm, steps and inv kinematic error max
                     self.ikErrorMax = ikErrorMax;
                 end
-                if nargin > 3 % All elements passed
+                if nargin > 3
+                    % Arm, steps, inv kinematic error max and velocity max
+                    self.velocityMax = velocityMax;
+                end
+                if nargin > 4
+                    % All elements passed
                     self.robot.model.animate(qInit);
-                else % No initial joint angles passed
+                else
+                    % No initial joint angles passed
                     self.robot.model.animate(zeros(1,self.robot.model.n));
                 end
             else % Nothing passed!
@@ -96,7 +110,6 @@ classdef ArmController
                     disp('Closer to end');
                     currentTransform = ...
                     self.robot.model.fkine(self.robot.model.getpos).T;
-                    s
                     for i = self.robot.model.n:-1:jointNumber
                         theta = self.robot.model.links(i).theta;
                         d = self.robot.model.links(i).d;
@@ -142,6 +155,10 @@ classdef ArmController
             ikErrorMax = self.ikErrorMax;
         end
 %-------------------------------------------------------------------------%
+        function velMax = get.velocityMax(self)
+            velMax = self.velocityMax;
+        end
+%-------------------------------------------------------------------------%
         function previousPoses = get.previousPoses(self)
             previousPoses = self.previousPoses;
         end
@@ -153,28 +170,38 @@ classdef ArmController
 %//Setters////////////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function self = set.previousState(self,state)
-          try chol(state)
+          try isenum(state)
              self.previousState = state;
           catch ME
-             error("State must be an item from armState")
+             error("previousState must be an item from armState")
           end
         end
 %-------------------------------------------------------------------------%
         function self = set.currentState(self,state)
-            if self.currentState ~= state
-                set(self).previousState(self.currentState);
-                self.currentState = state;
+          try isenum(state)
+             self.currentState = state;
+          catch ME
+             error("currentState must be an item from armState")
+          end
+        end
+%-------------------------------------------------------------------------%
+        function self = set.nextState(self,state)
+            if self.currentState ~= state % ensuring state has changed
+                try armState.contains(state)
+                    self.previousState = self.currentState;
+                    self.currentState = state;
+                catch ME
+                    error("nextState must be an item from armState")
+                end
             end
         end
 %-------------------------------------------------------------------------%
         function self = set.EStopFlag(self,stopBool)
-            self.EStopFlag = stopBool;
-
-            if self.EStopFlag
-                set(self).currentState(armState.EStop);
+            if stopBool
+                self.currentState = armState.EStop;
                 disp('ESTOP TRIGGERED, OPERATIONS CEASED');
             else
-                set(self).currentState(get().previousState);
+                self.currentState = self.previousState;
                 disp('ESTOP RELEASED, OPERATIONS RESUMED');
             end
         end
@@ -183,16 +210,46 @@ classdef ArmController
             self.previousPoses = previousPoses;
         end
 %-------------------------------------------------------------------------%
-        function self = set.currentPose(self,nextPose)
-            % Appending current pose to prevPoses array
-            prevPoses = get(self).previousPoses;
-            prevPoses{end+1} = get(self).currentPose;
-            
+        function self = set.currentPose(self,currentPose)
+            self.currentPose = currentPose;
+        end
+%-------------------------------------------------------------------------%
+function self = set.nextPose(self,nextPose)
             % Setting previous+current poses and next pose
-            set.previousPoses(prevPoses);
-            self.currentPose = nextPose;
+            self.previousPoses{end+1} = self.currentPose;
+            self.nextPose = nextPose;
         end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%//Functions//////////////////////////////////////////////////////////////%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function self = EStop(self,stopBool)
+            self.EStopFlag = stopBool;
+        end
+%-------------------------------------------------------------------------%
+        function self = moveToNextPoint(self,qPath)
+            for stepCurrent = 1:length(qPath)
+                self.robot.model.animate(qPath(stepCurrent,:));
+                drawnow();
+            
+                robotPos = self.robot.model.getpos;
+                self.currentPose = self.robot.model.fkine(robotPos).T;
+                pause(0);
+            end
+        end
+%-------------------------------------------------------------------------%
+%
+        function qPath = calcPath(self,desiredTr)
+            dist = norm(desiredTr-self.currentPose);
+            steps = dist * self.stepsPerMetre;
+
+            mask = [1,1,1,1,1,1];
+
+            q0 = self.robot.model.getpos;
+            q1 = self.robot.model.ikcon(desiredTr,mask);
+
+            qPath = jtraj(q0,q1,steps);
+        end
+%-------------------------------------------------------------------------%
     end
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
