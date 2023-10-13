@@ -3,17 +3,21 @@ clear all;
 close all;
 clc
 
-%% Testing ArmController
+%% Global Variables
+global CLOCK_SPEED;
+SetClockSpeed(1.0);
 
+%% Testing ArmController
 baseTr = eye(4);
 qInit = [-pi/2,-pi/2,-pi/2,-pi/2,-pi/2,-pi/2];
+stepsPerMetre = 300;
+IKErr = 10^-5;
+vMax = 0.05;
 
-UR3Controller = ArmController(UR3(baseTr),100,10^-6,qInit);
+UR3Controller = ArmController(UR3(baseTr),stepsPerMetre,IKErr,vMax,qInit);
 hold on
-%% 
 
 %% RESOLVE MOTION RATE CONTROL instead of Joint Interpolation
-
 disp('L_1');
 Joint1 = UR3Controller.GetJointPose(1);
 plot3(Joint1(1,4),Joint1(2,4),Joint1(3,4));
@@ -44,4 +48,7 @@ Joint6 = UR3Controller.GetJointPose(6);
 plot3(Joint6(1,4),Joint6(2,4),Joint6(3,4));
 disp(Joint6)
 
-UR3.display();
+UR3Controller.EStop(true)
+
+%% Main loop
+
