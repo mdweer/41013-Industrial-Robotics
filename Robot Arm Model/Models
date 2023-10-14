@@ -1,1 +1,2 @@
+% A scale factor of 0.001131 was used on Blender to down-scale the original robot so that it fits appropriately in a simulated MATLAB environment
 % Must add the code that represents the DH paramaters for the selected robot arm.
