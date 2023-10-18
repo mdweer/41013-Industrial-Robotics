@@ -1,0 +1,168 @@
+classdef ARMGUI < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        figure1              matlab.ui.Figure
+        VelocitySlider       matlab.ui.control.Slider
+        VelocitySliderLabel  matlab.ui.control.Label
+        EStopButton          matlab.ui.control.Button
+        InitialMoveButton    matlab.ui.control.Button
+        plot                 matlab.ui.control.UIAxes
+    end
+
+    
+    properties (Access = private)
+        armController 
+    end
+    
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function init(app, varargin)
+            % Code to run once GUI is loaded successfully
+            ax = gca;
+
+            function startupFcn(app, armControllerInstance)
+            if nargin > 0
+                app.armControllerInstance = armControllerInstance;
+                plotArm(app); % Example function to plot the arm on the axes
+                app.StateDisplay.Text = sprintf('State: %s', char(app.armControllerInstance.currentState));
+            else
+                error('ArmController instance required.');
+            end
+            end
+                    % Button pushed function: InitiateMoveButton
+            function InitiateMoveButtonPushed(app, event)
+                % TODO: Implement the logic for initiating arm movement here.
+                % Update state display
+                app.StateDisplay.Text = sprintf('State: %s', char(app.armControllerInstance.currentState));
+            end
+    
+            % Button pushed function: EStopButton
+            function EStopButtonPushed(app, event)
+                app.armControllerInstance.EStop(true);
+                % Update state display
+                app.StateDisplay.Text = sprintf('State: %s', char(app.armControllerInstance.currentState));
+            end
+
+            function VelocitySliderValueChanged(app, event)
+                value = app.VelocitySlider.Value;
+                app.armControllerInstance.velocityMax = value;
+                app.VelocityLabel.Text = sprintf('Velocity: %0.2f m/s', value);
+            end
+
+            
+        end
+
+        % Callback function
+        function MakeLoadedPumaMoveButtonPushed(app, event)
+            qmatrix = jtraj(app.qrPuma,app.qz,20);          
+            for robotStepIndex = 1:size(qmatrix,1)
+
+                app.modelPuma.animate(qmatrix(robotStepIndex,:));
+                drawnow;
+                
+            end
+        end
+
+        % Callback function
+        function MakeLoadedUR5MoveButtonPushed(app, event)
+            qmatrix = jtraj(app.qrUR5,app.qz,20);          
+            for robotStepIndex = 1:size(qmatrix,1)
+
+                app.modelUR5.model.animate(qmatrix(robotStepIndex,:));
+                drawnow;
+
+            end
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create figure1 and hide until all components are created
+            app.figure1 = uifigure('Visible', 'off');
+            app.figure1.Position = [100 100 812 560];
+            app.figure1.Name = 'TestRobotPlot_V2';
+            app.figure1.HandleVisibility = 'callback';
+            app.figure1.Tag = 'figure1';
+
+            % Create plot
+            app.plot = uiaxes(app.figure1);
+            xlabel(app.plot, 'X')
+            ylabel(app.plot, 'Y')
+            app.plot.FontSize = 12;
+            app.plot.NextPlot = 'replace';
+            app.plot.Tag = 'axes1';
+            app.plot.Position = [297 101 445 360];
+
+            % Create InitialMoveButton
+            app.InitialMoveButton = uibutton(app.figure1, 'push');
+            app.InitialMoveButton.Position = [115 355 107 23];
+            app.InitialMoveButton.Text = 'InitialMoveButton';
+
+            % Create EStopButton
+            app.EStopButton = uibutton(app.figure1, 'push');
+            app.EStopButton.Position = [118 298 100 23];
+            app.EStopButton.Text = 'EStopButton';
+
+            % Create VelocitySliderLabel
+            app.VelocitySliderLabel = uilabel(app.figure1);
+            app.VelocitySliderLabel.HorizontalAlignment = 'right';
+            app.VelocitySliderLabel.Position = [55 230 46 22];
+            app.VelocitySliderLabel.Text = 'Velocity';
+
+            % Create VelocitySlider
+            app.VelocitySlider = uislider(app.figure1);
+            app.VelocitySlider.Position = [122 239 150 3];
+
+            % Show the figure after all components are created
+            app.figure1.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = testRobotPlotApp_V2_exported(varargin)
+
+            runningApp = getRunningApp(app);
+
+            % Check for running singleton app
+            if isempty(runningApp)
+
+                % Create UIFigure and components
+                createComponents(app)
+
+                % Register the app with App Designer
+                registerApp(app, app.figure1)
+
+                % Execute the startup function
+                runStartupFcn(app, @(app)init(app, varargin{:}))
+            else
+
+                % Focus the running singleton app
+                figure(runningApp.figure1)
+
+                app = runningApp;
+            end
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.figure1)
+        end
+    end
+end
