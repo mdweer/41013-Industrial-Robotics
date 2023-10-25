@@ -5,50 +5,105 @@ clc
 
 %% Global Variables
 global CLOCK_SPEED;
-SetClockSpeed(1.0);
+global BASKET_BALL_COUNT;
+stageMax = 6;
 
-%% Testing ArmController
-baseTr = eye(4);
-qInit = [-pi/2,-pi/2,-pi/2,-pi/2,-pi/2,-pi/2];
-stepsPerMetre = 300;
-IKErr = 10^-5;
-vMax = 0.05;
-
-UR3Controller = ArmController(UR3(baseTr),stepsPerMetre,IKErr,vMax,qInit);
+SetClockSpeed(0.5);
+SetPairCount(1);
+%% 
+axis([-1.5 1.5 -1.5 1.5 0 2.5]);
 hold on
 
-%% RESOLVE MOTION RATE CONTROL instead of Joint Interpolation
-disp('L_1');
-Joint1 = UR3Controller.GetJointPose(1);
-plot3(Joint1(1,4),Joint1(2,4),Joint1(3,4));
-disp(Joint1)
+%% Init ArmController for Dobot
+baseTr{1} = eye(4) * transl(0.2,0,0) * trotz(180,'deg');
 
-disp('L_2');
-Joint2 = UR3Controller.GetJointPose(2);
-plot3(Joint2(1,4),Joint2(2,4),Joint2(3,4));
-disp(Joint2)
+% qInit = [-pi/2,-pi/2,-pi/2,-pi/2,-pi/2,-pi/2];
+% stepsPerMetre = 100;
+% IKErr = 10^-5;
+% vMax = 0.05;
 
-disp('L_3');
-Joint3 = UR3Controller.GetJointPose(3);
-plot3(Joint3(1,4),Joint3(2,4),Joint3(3,4));
-disp(Joint3)
+ctrlDobot = ArmController(DobotMagician(baseTr{1}));
 
-disp('L_4');
-Joint4 = UR3Controller.GetJointPose(4);
-plot3(Joint4(1,4),Joint4(2,4),Joint4(3,4));
-disp(Joint4)
+%% Init ArmController for TM5-700
+baseTr{2} = eye(4) * transl(-0.6,0,0) * trotz(180,'deg');
 
-disp('L_5');
-Joint5 = UR3Controller.GetJointPose(5);
-plot3(Joint5(1,4),Joint5(2,4),Joint5(3,4));
-disp(Joint5)
+% qInit = [-pi/2,-pi/2,-pi/2,-pi/2,-pi/2,-pi/2];
+% stepsPerMetre = 100;
+% IKErr = 10^-5;
+% vMax = 0.05;
 
-disp('L_6');
-Joint6 = UR3Controller.GetJointPose(6);
-plot3(Joint6(1,4),Joint6(2,4),Joint6(3,4));
-disp(Joint6)
+ctrlTM5 = ArmController(TM5(baseTr{2}));
 
-UR3Controller.EStop(true)
+%% Testing EStop armState
+% armController.EStop(1)
+% Do something (read terminal)
+% armController.EStop(0)
+
+%% Establishing Locations
+initTr{1} = ctrlDobot.GetJointPose(ctrlDobot.jointCount());
+initTr{2} = ctrlTM5.GetJointPose(ctrlTM5.jointCount());
+
+%Basket locations(Closer to Dobot)
+basketArray = cell(GetPairCount);
+basketArray{1} = baseTr{1} * transl([0,0.2,0.1]) * trotx(180,'deg');
+for i = 1:GetPairCount
+    plot3(basketArray{i}(1,4), ...
+          basketArray{i}(2,4), ...
+          basketArray{i}(3,4),'*-r');
+end
+
+%Ball locations (closer to TM5-700)
+ballArray = cell(GetPairCount);
+%Object dectection
+ballArray{1} = baseTr{2} * transl([0,0.5,0.1]) * trotx(180,'deg');
+for i = 1:GetPairCount
+    plot3(ballArray{i}(1,4), ...
+          ballArray{i}(2,4), ...
+          ballArray{i}(3,4),'*-g');
+end
+
+%Ball drop locations
+dropArray = cell(GetPairCount);
+%Object dectection
+dropArray{1} = eye(4) * transl([0,0,0.1]);
+for i = 1:GetPairCount
+    plot3(dropArray{i}(1,4), ...
+          dropArray{i}(2,4), ...
+          dropArray{i}(3,4),'+-y');
+end
+
+disp('Pair Count')
+disp(GetPairCount())
 
 %% Main loop
-
+for i = 1:GetPairCount
+    for j = 1:stageMax
+        disp('Stage:')
+        disp(j)
+        [DobotTr, TM5Tr] = getNextPose(j,i,basketArray,ballArray,dropArray,initTr);
+    
+        if ~(isequal(DobotTr,zeros(4,4))) && ~(isequal(TM5Tr,zeros(4,4)))
+            disp('nextLocation')
+            qPathDobot = ctrlDobot.genIKPath(DobotTr,'Quin');
+            qPathTM5 = ctrlTM5.genIKPath(TM5Tr,'Quin');
+        
+            %Dobot move qPath
+            [success,error] = ctrlDobot.moveToNextPoint(DobotTr,qPathDobot);
+            % fprintf('IK Error: %d', error);
+            if ~success
+                i = i - 1;
+                pause(GetClockSpeed());
+            end
+            
+            %TM5 move qPath
+            [success,error] = ctrlTM5.moveToNextPoint(TM5Tr,qPathTM5);
+            % fprintf('IK Error: %d', error);
+            if ~success
+                i = i - 1;
+                pause(GetClockSpeed());
+            end
+        else
+            disp('Gripper or wait')
+        end
+    end
+end

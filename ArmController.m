@@ -45,6 +45,7 @@ classdef ArmController
             self.errorCode = 0;
             self.stepsPerMetre = self.DEFAULT_STEPS_PER_METRE;
             self.ikErrorMax = self.DEFAULT_IK_ERROR_MAX;
+            self.velocityMax = self.DEFAULT_VELOCITY_MAX;
             self.currentState = armState.Init;
         
             if nargin > 0
@@ -211,6 +212,8 @@ function self = set.nextPose(self,nextPose)
         end
 %-------------------------------------------------------------------------%
         function [goalReached,err] = moveToNextPoint(self,desiredTr,qPath)
+            delay = GetClockSpeed() / length(qPath);
+            
             if isequal(self.currentState,armState.EStop)
                 disp('OPERATIONS CANNOT CONTINUE UNTIL ESTOP RELEASED')
                 goalReached = 0;
@@ -227,7 +230,7 @@ function self = set.nextPose(self,nextPose)
                     plot3(self.currentPose(1,4), ...
                           self.currentPose(2,4), ...
                           self.currentPose(3,4),'.-b');
-                    pause(dT);
+                    pause(delay);
                 end
 
                 % Plot final End-Effector position (compare to desiredTr)
@@ -242,7 +245,6 @@ function self = set.nextPose(self,nextPose)
         end
 %-------------------------------------------------------------------------%
         function qPath = genIKPath(self,desiredTr,profile)
-            disp('genIKPath')
             %Calculating distance and required steps based on current
             %Clock Rate
             eeTr = self.robot.model.fkine(self.robot.model.getpos);
@@ -265,7 +267,7 @@ function self = set.nextPose(self,nextPose)
                     end
                 case 'RMRC'
                     qPath(1,:) = q0;
-                    dT = GetClockSpeed() / steps;
+                    dT = self.velocityMax * GetClockSpeed();
                     disp(desiredTr)
                     eeTr = self.robot.model.fkine(self.robot.model.getpos).T;
         
@@ -294,6 +296,7 @@ function self = set.nextPose(self,nextPose)
                             qd = inv(J) * xd;
                         end
                         
+                        errVal = xd - J*qd;
                         err(:,i) = errVal;
                         qPath(i+1,:) = qPath(i,:) + dT * qd';
                     end
