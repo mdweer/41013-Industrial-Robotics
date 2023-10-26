@@ -176,6 +176,10 @@ function self = set.nextPose(self,nextPose)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %//Functions//////////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function SetQ(self,q)
+            self.robot.model.animate(q);
+        end
+%-------------------------------------------------------------------------%
         function [jointPose,self] = GetJointPose(self,jointNumber)
             %Get the pose transform for the specified joint
             % (returns empty if outside of joint bounds)
@@ -184,11 +188,12 @@ function self = set.nextPose(self,nextPose)
                 self.errorCode = 2;
                 error('Joint out of bounds');
             else %SELECTION WITHIN JOINT NUMBER
-                    currentTransform = ...
-                    self.robot.model.base.T;
+                    currentTr = self.robot.model.base.T;
+                    currentq = self.qCurrent;
+                    jointArray = zeros(3,jointNumber);
 
                     for i = 1:jointNumber
-                        theta = self.robot.model.links(i).offset;
+                        theta = self.robot.model.links(i).offset + currentq(i);
                         d = self.robot.model.links(i).d;
                         a = self.robot.model.links(i).a;
                         alpha = self.robot.model.links(i).alpha;
@@ -205,9 +210,17 @@ function self = set.nextPose(self,nextPose)
                             transl(a,0,d) * ...
                             trotx(rad2deg(alpha), 'deg');
 
-                        currentTransform = currentTransform * Tr;
+                        currentTr = currentTr * Tr;
+                        jointArray(1,i) = currentTr(1,4);
+                        jointArray(2,i) = currentTr(2,4);
+                        jointArray(3,i) = currentTr(3,4);
+
                     end
-                jointPose = currentTransform;
+                jointPose = currentTr;
+
+                plot3(jointArray(1,:), ...
+                      jointArray(2,:), ...
+                      jointArray(3,:),'*-w');
             end
         end
 %-------------------------------------------------------------------------%
