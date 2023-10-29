@@ -1,0 +1,93 @@
+classdef testRobotPlotApp_V2_exported < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        figure1                   matlab.ui.Figure
+        EstopButton               matlab.ui.control.StateButton
+    end
+
+    properties (Access = private)
+        armControllerObj   % Instance of ArmController class
+    end
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+                function EstopButtonValueChanged(app, event)
+            if isempty(app.armControllerObj)
+                disp('ArmController object is not initialized yet.');
+                return;
+            end
+            if app.EstopButton.Value == 1  % Check if the button is pressed
+                disp('Emergency Stop Engaged!');
+                app.armControllerObj.EStop(true);  % Call EStop method in ArmController
+            else
+                disp('Emergency Stop Released!');
+                app.armControllerObj.EStop(false);  % Call EStop method in ArmController
+            end
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create figure1 and hide until all components are created
+            app.figure1 = uifigure('Visible', 'off');
+            app.figure1.Position = [100 100 200 150];
+            app.figure1.Name = 'TestRobotPlot_V2';
+            
+            % Create EstopButton
+            app.EstopButton = uibutton(app.figure1, 'state');
+            app.EstopButton.Text = 'Estop';
+            app.EstopButton.BackgroundColor = [0.9804 0.2824 0.2824];
+            app.EstopButton.FontWeight = 'bold';
+            app.EstopButton.Position = [50 50 100 50];
+            app.EstopButton.ValueChangedFcn = createCallbackFcn(app, @EstopButtonValueChanged, true);
+
+            % Show the figure after all components are created
+            app.figure1.Visible = 'on';
+        end
+    end
+    
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = testRobotPlotApp_V2_exported(varargin)
+
+            runningApp = getRunningApp(app);
+
+            % Check for running singleton app
+            if isempty(runningApp)
+
+                % Create UIFigure and components
+                createComponents(app)
+
+                % Register the app with App Designer
+                registerApp(app, app.figure1)
+
+                % Execute the startup function
+                runStartupFcn(app, @(app)init(app, varargin{:}))
+            else
+
+                % Focus the running singleton app
+                figure(runningApp.figure1)
+
+                app = runningApp;
+            end
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+            % Delete UIFigure when app is deleted
+            delete(app.figure1)
+        end
+    end
+end
