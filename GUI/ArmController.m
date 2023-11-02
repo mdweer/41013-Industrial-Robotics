@@ -238,6 +238,13 @@ classdef ArmController < handle
         function SetQ(self,q)
             self.robot.model.animate(q);
         end
+
+
+            function moveJoint(self, jointNumber, jointAngle)
+        qCurrent = self.robot.model.getpos();
+        qCurrent(jointNumber) = jointAngle;
+        self.SetQ(qCurrent);
+    end
 %-------------------------------------------------------------------------%
         function [jointPose,self] = GetJointPose(self,jointNumber)
             %Get the pose transform for the specified joint
