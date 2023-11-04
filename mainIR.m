@@ -34,18 +34,13 @@ ctrlDobot = ArmController(LinearDM(baseTr{1}));
 baseTr{2} = transl(0, -1, GetWorkspaceFloor()) * trotz(-90,'deg');
 ctrlTM5 = ArmController(TM5(baseTr{2}));
 
-%% Testing EStop armState
-% ctrlDobot.EStop(true)
-% ctrlTM5.EStop(true)
-% Do something (read terminal)
-
 %% Establishing Locations
 initTr{1} = ctrlDobot.GetJointPose(ctrlDobot.jointCount());
 initTr{2} = ctrlTM5.GetJointPose(ctrlTM5.jointCount());
 workspaceCentre = transl([0,0,GetWorkspaceFloor]);
 
-app = testRobotPlotApp_V2_exported;
-app.setArmControllerObj(ctrlDobot); 
+app = testRobotPlotApp_V2_exported;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+app.setArmControllerObj(ctrlDobot);
 % or ctrlTM5, depending on which one you want to control
 app.setArmControllerObj1(ctrlTM5);
 % or ctrlTM5, depending on which one you want to control
@@ -151,9 +146,6 @@ for i = 1:GetPairCount
             DobotGrip = gripCloseArr(1);
             TM5Grip = gripCloseArr(2);
 
-            disp('gripCloseArr')
-            disp(gripCloseArr)
-
             if DobotGrip
                 ctrlDobot.grabTarget();
             end
@@ -167,29 +159,19 @@ for i = 1:GetPairCount
     
             if ~(isequal(DobotTr,zeros(4,4))) && ...
                ~(isequal(TM5Tr,zeros(4,4)))
-                disp('nextLocation')
-
-                disp('DobotTr:')
-                disp(DobotTr)
-                disp('TM5Tr:')
-                disp(TM5Tr)
 
                 qPathDobot = ctrlDobot.genPath(DobotTr,'Trap','Global');
                 qPathTM5 = ctrlTM5.genPath(TM5Tr,'RMRC','Global');
                 
-                % disp('qPathDobot:')
-                % disp(qPathDobot)
-                % disp('qPathTM5:')
-                % disp(qPathTM5)
-                
                 %Dobot move qPath
-                [success1,error] = ctrlDobot.moveToNextPoint(DobotTr, ...
-                                                             qPathDobot);
-                fprintf('IK Error: %d', error);
+                [success1,error] = ...
+                            ctrlDobot.moveToNextPoint(DobotTr,qPathDobot);
+                fprintf('Dobot IK Error: %d', error);
                 
                 %TM5 move qPath
-                [success2,error] = ctrlTM5.moveToNextPoint(TM5Tr,qPathTM5);
-                fprintf('IK Error: %d', error);
+                [success2,error] = ...
+                            ctrlTM5.moveToNextPoint(TM5Tr,qPathTM5);
+                fprintf('TM5 IK Error: %d', error);
 
                 if ~success1 || ~success2
                 % if either arm fails the movement, repeat loop iteration
@@ -201,8 +183,8 @@ for i = 1:GetPairCount
             end
         else
             j = j - 1;
-            ctrlDobot.SetQ(qManipDobot);
-            ctrlTM5.SetQ(qManipTM5);
+            % ctrlDobot.SetQ(qManipDobot);
+            % ctrlTM5.SetQ(qManipTM5);
         end
     end
 end
