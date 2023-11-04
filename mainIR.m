@@ -14,8 +14,17 @@ SetPairCount(1);
 SetWorkspaceFloor(0.6);
 
 %% Setting up Workspace
-axis([-2 2 -2 2 0 2]);
+axis([-4 4 -4 4 0 4]);
 hold on
+
+%% Dobot Magician Real Robot Setup
+% rosshutdown;
+% rosinit('192.168.27.1');
+% % rosnode list;
+% dobotJointSub = '/dobot_magician/joint_states';
+% dobotJointPub = '/dobot_magician/target_joint_states';
+% dobotJointMsg = 'trajectory_msgs/JointTrajectoryPoint';
+% dobotJointSubscriber = rossubscriber(dobotJointSub);
 
 %% Init ArmController for Dobot
 baseTr{1} = transl(-0.4, 0.2, GetWorkspaceFloor()) * trotz(180,'deg');
@@ -35,6 +44,12 @@ initTr{1} = ctrlDobot.GetJointPose(ctrlDobot.jointCount());
 initTr{2} = ctrlTM5.GetJointPose(ctrlTM5.jointCount());
 workspaceCentre = transl([0,0,GetWorkspaceFloor]);
 
+app = testRobotPlotApp_V2_exported;
+app.setArmControllerObj(ctrlDobot); 
+% or ctrlTM5, depending on which one you want to control
+app.setArmControllerObj1(ctrlTM5);
+% or ctrlTM5, depending on which one you want to control
+
 %Basket locations(Closer to Dobot)
 basketArray = cell(2,GetPairCount);
 basketArray{1,1} = workspaceCentre * transl([0,0.6,0]) * trotx(0,'deg');
@@ -43,19 +58,20 @@ for i = 1:length(basketArray(1,:))
     y = basketArray{1,i}(2,4);
     z = basketArray{1,i}(3,4);
     plot3(x,y,z,'|-r');
-    basketArray{2,i} = PlaceObject('view/Models/baskets.ply', [x,y,z]);
+    basketArray{2,i} = PlaceObject('View/Models/baskets.ply', [x,y,z]);
 end
 
 %Ball locations (closer to TM5-700)
 ballArray = cell(GetPairCount);
 %Object dectection
-ballArray{1,1} = workspaceCentre * transl([-0.3,-0.5,0]) * trotx(180,'deg');
+ballArray{1,1} = workspaceCentre * ...
+                 transl([-0.3,-0.5,0]) * trotx(180,'deg');
 for i = 1:length(ballArray(1,:))
     x = ballArray{1,i}(1,4);
     y = ballArray{1,i}(2,4);
     z = ballArray{1,i}(3,4);
     plot3(x,y,z,'|-g');
-    ballArray{2,i} = PlaceObject('view/Models/apple.ply', [x,y,z]);
+    ballArray{2,i} = PlaceObject('View/Models/apple.ply', [x,y,z]);
 end
 
 %Ball drop locations
@@ -69,29 +85,37 @@ for i = 1:length(dropArray(1,:))
 end
 
 %% Placing Objects into Workspace
-surf([-2,    -2;     2,     2], ...
-     [-2,     2;    -2,     2], ...
+surf([-4,    -4;     4,     4], ...
+     [-4,     4;    -4,     4], ...
      [0.01,0.01;    0.01,0.01], ...
-     'CData',imread('view/concrete.jpg'),'FaceColor','texturemap');
+     'CData',imread('concrete.jpg'),'FaceColor','texturemap');
 
-emergency = PlaceObject('view/Models/emergencyStopWallMounted.ply', [-1,-1.85,1.5]);
-extinguisher = PlaceObject('view/Models/fireExtinguisher.ply', [-1.5, -1.8, 0]);
+human = PlaceObject('View/Models/personMaleOld.ply', [0,-3,0]);
+emergency = PlaceObject('View/Models/emergencyStopWallMounted.ply', ...
+                        [-1,3.95,1.5]);
+rotate(emergency,   [0, 0, 1], 90);
 
-table = PlaceObject('view/Models/table.ply',[0,0,0]);
+
+
+extinguisher = PlaceObject('View/Models/fireExtinguisher.ply', ...
+                           [-2.5, 3.5, 0]);
+rotate(extinguisher,   [0, 0, 1], 90);
+
+table = PlaceObject('View/Models/table.ply',[0,0,0]);
 rotate(table,   [0, 0, 1], 90);
 
-wall = PlaceObject('view/Models/Wall.ply', [-1.99,-1.99,-1]);
-wall1 = PlaceObject('view/Models/Wall.ply', [-1.99,-1.99,-1]);
-rotate(wall1,   [0, 0, 1], 90);
+walls = PlaceObject('View/Models/WW.ply', [0,0,-1.2]);
+wall = PlaceObject('View/Models/Wall.ply', [-3.99,-3.99,-1]);
 
-fence = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [0.7, 1.5, 0]);
-fence1 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [0.7, -1.3, 0]);
-fence2 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [0.8, -1.55, 0]);
-fence3 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [0.8, 1.5, 0]);
-fence4 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [-0.7, 1.5, 0]);
-fence5 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [-0.7, -1.3, 0]);
-fence6 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [-0.5, -1.55, 0]);
-fence7 = PlaceObject('view/Models/barrier1.5x0.2x1m.ply', [-0.5, 1.5, 0]);
+
+fence = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [0.7, 1.5, 0]);
+fence1 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [0.7, -1.3, 0]);
+fence2 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [0.8, -1.55, 0]);
+fence3 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [0.8, 1.5, 0]);
+fence4 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [-0.7, 1.5, 0]);
+fence5 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [-0.7, -1.3, 0]);
+fence6 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [-0.5, -1.55, 0]);
+fence7 = PlaceObject('View/Models/barrier1.5x0.2x1m.ply', [-0.5, 1.5, 0]);
 rotate(fence2,  [0, 0, 1], 90);
 rotate(fence3,  [0, 0, 1], 90);
 rotate(fence6,  [0, 0, 1], 90);
@@ -119,7 +143,8 @@ for i = 1:GetPairCount
         if startOperationFlag
             disp('Stage:')
             disp(j)
-            [nextTrArr,gripCloseArr] = getNextTr(j,i,basketArray,ballArray,dropArray,initTr);
+            [nextTrArr,gripCloseArr] = getNextTr(j,i,basketArray, ...
+                                            ballArray,dropArray,initTr);
         
             DobotTr = nextTrArr{1};
             TM5Tr = nextTrArr{2};
@@ -129,14 +154,19 @@ for i = 1:GetPairCount
             disp('gripCloseArr')
             disp(gripCloseArr)
 
-            ctrlDobot.gripperCloseFlag(DobotGrip);
-            ctrlTM5.gripperCloseFlag(TM5Grip);
+            if DobotGrip
+                ctrlDobot.grabTarget();
+            end
+            if TM5Grip
+                ctrlTM5.grabTarget();
+            end
 
             %Display current joint configuration
             ctrlDobot.GetJointPose(ctrlDobot.jointCount);
             ctrlTM5.GetJointPose(ctrlTM5.jointCount);
     
-            if ~(isequal(DobotTr,zeros(4,4))) && ~(isequal(TM5Tr,zeros(4,4)))
+            if ~(isequal(DobotTr,zeros(4,4))) && ...
+               ~(isequal(TM5Tr,zeros(4,4)))
                 disp('nextLocation')
 
                 disp('DobotTr:')
@@ -145,7 +175,7 @@ for i = 1:GetPairCount
                 disp(TM5Tr)
 
                 qPathDobot = ctrlDobot.genPath(DobotTr,'Trap','Global');
-                qPathTM5 = ctrlTM5.genPath(TM5Tr,'Trap','Global');
+                qPathTM5 = ctrlTM5.genPath(TM5Tr,'RMRC','Global');
                 
                 % disp('qPathDobot:')
                 % disp(qPathDobot)
@@ -153,7 +183,8 @@ for i = 1:GetPairCount
                 % disp(qPathTM5)
                 
                 %Dobot move qPath
-                [success1,error] = ctrlDobot.moveToNextPoint(DobotTr,qPathDobot);
+                [success1,error] = ctrlDobot.moveToNextPoint(DobotTr, ...
+                                                             qPathDobot);
                 fprintf('IK Error: %d', error);
                 
                 %TM5 move qPath
@@ -161,7 +192,7 @@ for i = 1:GetPairCount
                 fprintf('IK Error: %d', error);
 
                 if ~success1 || ~success2
-                    % if either arm fails the movement, repeat loop iteration
+                % if either arm fails the movement, repeat loop iteration
                     j = j - 1;
                     pause(GetClockSpeed());
                 end

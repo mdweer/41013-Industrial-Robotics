@@ -58,14 +58,14 @@ switch stageCurrent
         gripClose(2) = true;
     case {3}
         nextTr{1} = dropTr{loopCurrent} * gripDobotTr * basketDobotTr;
-        nextTr{2} = dropTr{loopCurrent} * gripTM5Tr * trotx(0,'deg');
+        nextTr{2} = dropTr{loopCurrent} * gripTM5Tr * trotx(180,'deg');
         gripClose(1) = true;
         gripClose(2) = true;
     case {4}
         gripClose(1) = true;
     case {5}
         nextTr{1} = basketTr{loopCurrent} * gripDobotTr * basketDobotTr;
-        nextTr{2} = dropTr{loopCurrent} * gripTM5Tr * trotx(0,'deg');
+        nextTr{2} = dropTr{loopCurrent} * gripTM5Tr * trotx(180,'deg');
         gripClose(1) = true;
     case {6}
     case {7}
@@ -82,4 +82,6 @@ if ~(isequal(nextTr{1},zeros(4,4))) && ~(isequal(nextTr{2},zeros(4,4)))
           nextTr{2}(2,4), ...
           nextTr{2}(3,4),'^-G');
 end
+    disp('Gripper array')
+    disp(gripClose)
 end

@@ -1,28 +1,42 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-classdef ArmController
+classdef ArmController < handle
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     properties (Constant)
-        DEFAULT_STEPS_PER_METRE = 50;
-        DEFAULT_IK_ERROR_MAX = 0.001;
+        DEFAULT_STEPS_PER_METRE = 25;
+        DEFAULT_IK_ERROR_MAX = 0.05;
         DEFAULT_VELOCITY_MAX = 0.1; % m/s
-        MEASURE_OF_MANIPULABILITY_MIN = 0.1;
+        DEFAULT_MEASURE_OF_MANIPULABILITY_MIN = 0.1;
+        DEFAULT_DAMPED_LEAST_SQUARES = 0.01;
     end
 
     properties(Access = private)
         robot
-        gripper
+        jointSub
+        jointPub
+        jointMsg
+
+
+        gripperController
         gripTarget_h
         gripTargetVerts
         gripTargetTr
+
+
         stepsPerMetre
         ikErrorMax
         velocityMax
+        dampedLS
         manipMin
+
+
         previousState
         previousTr
+        
         currentState
         currentTr
         nextTr
+
+
         errorCode
         EStopButton
     end
@@ -34,6 +48,8 @@ classdef ArmController
     end
 
     properties(Dependent)
+        baseTr
+        eeTr
         jointPose
         nextState
         EStopFlag
@@ -44,13 +60,16 @@ classdef ArmController
 %//Constructors///////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function self = ArmController( ...
-                        robot,stepsPerMetre,ikErrorMax,velocityMax,qInit)
+                        robot,stepsPerMetre,gripperCtrl,jointStateSub, ...
+                        jointStatePub,jointStateMsg,ikErrorMax,velocityMax)
             %Instantiate class object
             %Setting member attributes to default values
             self.errorCode = 0;
             self.stepsPerMetre = self.DEFAULT_STEPS_PER_METRE;
             self.ikErrorMax = self.DEFAULT_IK_ERROR_MAX;
             self.velocityMax = self.DEFAULT_VELOCITY_MAX;
+            self.dampedLS = self.DEFAULT_DAMPED_LEAST_SQUARES;
+            self.manipMin = self.DEFAULT_MEASURE_OF_MANIPULABILITY_MIN;
             self.gripperCloseFlag = false;
             % ArmState is initialised until constructor is complete
             self.currentState = armState.Init;
@@ -63,19 +82,30 @@ classdef ArmController
                     self.stepsPerMetre = stepsPerMetre;
                 end
                 if nargin > 2
+                    self.gripperController = gripperCtrl;
+                    self.gripperController.baseTr = self.eeTr;
+                end
+                if nargin > 5
+                    % Arm, steps per metre and ros subscriber, publisher
+                    % and message strings
+                    self.jointSub = jointStateSub;
+                    self.jointPub = jointStatePub;
+                    self.jointMsg = jointStateMsg;
+                    jointSub = rossubscriber(jointStateSub, ...
+                                             'sensor_msgs/JointState');
+                    pause(0.5);
+                    
+                    armJointConfig = (jointSub.LatestMessage.Position)';
+                    armJointConfig = [0,armJointConfig];
+                    self.robot.model.animate(deg2rad(armJointConfig));
+                end
+                if nargin > 6
                     % Arm, steps and inv kinematic error max
                     self.ikErrorMax = ikErrorMax;
                 end
-                if nargin > 3
-                    % Arm, steps, inv kinematic error max and velocity max
-                    self.velocityMax = velocityMax;
-                end
-                if nargin > 4
+                if nargin > 7
                     % All elements passed
-                    self.robot.model.animate(qInit);
-                else
-                    % No initial joint angles passed
-                    % self.robot.model.animate(zeros(1,self.robot.model.n));
+                    self.velocityMax = velocityMax;
                 end
             else % Nothing passed!
                 self.errorCode = 1;
@@ -88,6 +118,10 @@ classdef ArmController
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %//Getters////////////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function eeTr = get.eeTr(self)
+            eeTr = self.robot.model.fkine(self.robot.model.getpos).T;
+        end
+%-------------------------------------------------------------------------%
         function qCurrent = get.qCurrent(self)
             qCurrent = self.robot.model.getpos;
         end
@@ -146,6 +180,11 @@ classdef ArmController
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %//Setters////////////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function self = set.baseTr(self,baseTr)
+                self.robot.model.base = baseTr;
+                self.robot.model.animate(self.robot.model.getpos);
+        end
+%-------------------------------------------------------------------------%
         function self = set.previousState(self,state)
             try isenum(state)
                 self.previousState = state;
@@ -163,30 +202,16 @@ classdef ArmController
         end
 %-------------------------------------------------------------------------%
         function self = set.nextState(self,state)
-            if ~(isequal(self.currentState,state)) % ensuring state has changed
                 self.previousState = self.currentState;
                 self.currentState = state;
-            end
         end
 %-------------------------------------------------------------------------%
-        function self = set.EStopFlag(self,stopBool)
+        function self = EStop(self, stopBool)
             if stopBool
-                self.nextState = armState.EStop;
-                disp('ESTOP TRIGGERED, OPERATIONS CEASED');
+                self.previousState = self.currentState;
+                self.currentState = armState.EStop;
             else
-                self.nextState = self.previousState;
-                disp('ESTOP RELEASED, OPERATIONS RESUMED');
-            end
-        end
-%-------------------------------------------------------------------------%
-        function self = EStop(self,stopBool)
-            % self.EStopFlag = stopBool;
-            if stopBool
-                self.nextState = armState.EStop;
-                disp('ESTOP TRIGGERED, OPERATIONS CEASED');
-            else
-                self.nextState = self.previousState;
-                disp('ESTOP RELEASED, OPERATIONS RESUMED');
+                self.currentState = self.previousState;
             end
         end
 %-------------------------------------------------------------------------%
@@ -226,42 +251,38 @@ classdef ArmController
 %//Functions//////////////////////////////////////////////////////////////%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function self = SetGrabTarget(self,gripObjTr,gripObj_h)
-            disp('SetGrabTarget - Inputs:')
-            disp('Transform:')
-            disp(gripObjTr)
-            disp('handle:')
-            disp(gripObj_h)
 
             self.gripTarget_h = gripObj_h;
             self.gripTargetVerts = [get(self.gripTarget_h,'Vertices'),...
                 ones(size(get(self.gripTarget_h,'Vertices'),1),1)];
             self.gripTargetTr = gripObjTr;
-            
-            disp('SetGrabTarget - Outputs:')
-            disp('Transform:')
-            disp(self.gripTargetTr)
-            disp('handle:')
-            disp(self.gripTarget_h)
-            disp('vertices:')
-            disp(self.gripTargetVerts)
         end
 %-------------------------------------------------------------------------%
-        function self = grabTarget(self,gripperClose)
-            if gripperClose
-                gripObjTr = self.currentTr * inv(self.gripTargetTr);
-                
-                nextVertices = (self.gripTargetVerts(:,1:3) * ...
-                                gripObjTr(1:3,1:3)') + gripObjTr(1:3,4)';
-        
-                set(brickCurrent_h,'Vertices',nextVertices)
-                drawnow();
-            else
-            end
+        function self = grabTarget(self)
+            disp('self.gripObjTr');
+            disp(self.gripTargetTr);
+            disp('self.gripTarget_h');
+            disp(self.gripTarget_h);
+            disp('self.gripTargetVerts');
+            disp(self.gripTargetVerts);
+            gripObjTr = self.currentTr * inv(self.gripTargetTr);
+            
+            nextVertices = (self.gripTargetVerts(:,1:3) * ...
+                            gripObjTr(1:3,1:3)') + gripObjTr(1:3,4)';
+    
+            set(self.gripTarget_h,'Vertices',nextVertices)
+            drawnow();
         end
 %-------------------------------------------------------------------------%
         function SetQ(self,q)
             self.robot.model.animate(q);
         end
+%-------------------------------------------------------------------------%
+    function moveJoint(self, jointNumber, jointAngle)
+        self.qCurrent = self.robot.model.getpos();
+        self.qCurrent(jointNumber) = jointAngle;
+        self.SetQ(self.qCurrent);
+    end
 %-------------------------------------------------------------------------%
         function [jointPose,self] = GetJointPose(self,jointNumber)
             %Get the pose transform for the specified joint
@@ -271,21 +292,22 @@ classdef ArmController
                 self.errorCode = 2;
                 error('Joint out of bounds');
             else %SELECTION WITHIN JOINT NUMBER
-                    eeTr = self.robot.model.base.T;
+                    jointTr = self.robot.model.base.T;
                     currentq = self.qCurrent;
                     jointArray = zeros(3,jointNumber);
                     isPris = self.robot.model.isprismatic;
 
                     for i = 1:jointNumber
                         if isPris(i)
-                            disp('prismatic joint at:')
-                            disp(i)
+                            % disp('prismatic joint at:')
+                            % disp(i)
                             theta = self.robot.model.links(i).offset + pi;
                             d = self.robot.model.links(i).d + currentq(i);
                             a = self.robot.model.links(i).a;
                             alpha = self.robot.model.links(i).alpha;
                         else
-                            theta = self.robot.model.links(i).offset + currentq(i);
+                            theta = self.robot.model.links(i).offset + ...
+                                    currentq(i);
                             d = self.robot.model.links(i).d;
                             a = self.robot.model.links(i).a;
                             alpha = self.robot.model.links(i).alpha;
@@ -303,12 +325,12 @@ classdef ArmController
                             transl(a,0,d) * ...
                             trotx(rad2deg(alpha), 'deg');
 
-                        eeTr = eeTr * Tr;
-                        jointArray(1,i) = eeTr(1,4);
-                        jointArray(2,i) = eeTr(2,4);
-                        jointArray(3,i) = eeTr(3,4);
+                        jointTr = jointTr * Tr;
+                        jointArray(1,i) = jointTr(1,4);
+                        jointArray(2,i) = jointTr(2,4);
+                        jointArray(3,i) = jointTr(3,4);
                     end
-                jointPose = eeTr;
+                jointPose = jointTr;
 
                 plot3(jointArray(1,:), ...
                       jointArray(2,:), ...
@@ -316,73 +338,96 @@ classdef ArmController
             end
         end
 %-------------------------------------------------------------------------%
-        function [goalReached,err] = moveToNextPoint(self,desiredTr,qPath)
-            delay = GetClockSpeed() / length(qPath);
-            goalReached = false;
-            err = 0;
-                    disp('moveToNextPoint - SetGrabTarget:')
-                    disp('Transform:')
-                    disp(self.gripTargetTr)
-                    disp('handle:')
-                    disp(self.gripTarget_h)
-                    disp('vertices:')
-                    disp(self.gripTargetVerts)
+function [goalReached, err] = moveToNextPoint(self, desiredTr, qPath)
+    delay = GetClockSpeed() / length(qPath);
+    goalReached = true;
+    err = 0;
+    stepCurrent = 1;
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if ~isempty(self.jointSub) && ...
+        ~isempty(self.jointPub) && ...
+        ~isempty(self.jointMsg)
+        %Set target joint state
+        jointTarget = qPath(end,2:5);
+        
+        [targetJointTrajPub,targetJointTrajMsg] = ...
+        rospublisher(self.jointPub);
+        trajectoryPoint = rosmessage(self.jointMsg);
+        trajectoryPoint.Positions = jointTarget;
+        targetJointTrajMsg.Points = trajectoryPoint;
+        
+        send(targetJointTrajPub,targetJointTrajMsg);
+    end
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    while length(qPath(:,1)) > stepCurrent
+        if self.currentState == armState.EStop
+            disp('OPERATIONS CANNOT CONTINUE UNTIL ESTOP RELEASED');
+            pause(1); % pause for a moment before checking again
+        else
+            self.currentTr = self.eeTr;
+            self.robot.model.animate(qPath(stepCurrent,:));
+
+            % If ArmController contains a gripper controller handle
+            % Move baseTr of gripper based on End Effector position
+            if ~isempty(self.gripperController)
+                self.gripperController.baseTr = self.currentTr;
+            end
+
+            if self.gripperCloseFlag
+                grabTarget();
+            end
+            drawnow();
             
-            if isequal(self.currentState,armState.EStop)
-                disp('OPERATIONS CANNOT CONTINUE UNTIL ESTOP RELEASED')
-            else
-                for stepCurrent = 1:length(qPath(:,1))
-                    self.robot.model.animate(qPath(stepCurrent,:));
+            % Plot End-Effector position during steps
+            plot3(self.currentTr(1,4), self.currentTr(2,4), ...
+                self.currentTr(3,4), '.-b');
+            pause(delay);
+            stepCurrent = stepCurrent + 1;
+        end
+    end
 
-                    self.grabTarget(self.gripperCloseFlag);
+    if self.currentState ~= armState.EStop
+        PdesTr = atan(desiredTr(3,2) / desiredTr(3,3));
+        RdesTr = atan(-desiredTr(3,1) / sqrt(desiredTr(3,2)^2 + ...
+            desiredTr(3,3)^2));
+        YdesTr = atan(desiredTr(2,1) / desiredTr(1,1));
 
-                    % if ~isempty(self.gripper)
-                    %     self.gripper.model.base = self.currentTr * inv(self.gripper.model.base);
-                    %     nextVertices = (brickVerts(:,1:3) * brickTf(1:3,1:3)') + brickTf(1:3,4)';
-                    % 
-                    %     set(brickCurrent_h,'Vertices',nextVertices)
-                    % end
-                    % 
-                    % if ~isempty(self.gripTarget)
-                    %     gripTarget = robotEE * inv(brickCurrentPose);
-                    %     nextVertices = (brickVerts(:,1:3) * brickTf(1:3,1:3)') + brickTf(1:3,4)';
-                    % 
-                    %     set(brickCurrent_h,'Vertices',nextVertices)
-                    % end
-                    drawnow();
-                
-                    robotPos = self.robot.model.getpos;
-                    self.currentTr = self.robot.model.fkine(robotPos).T;
-                    
-                    % Plot End-Effector position during steps
-                    plot3(self.currentTr(1,4), ...
-                          self.currentTr(2,4), ...
-                          self.currentTr(3,4),'.-b');
-                    pause(delay);
-                end
+        eeTr = self.currentTr;
+        PeeTr = atan(eeTr(3,2) / eeTr(3,3));
+        ReeTr = atan(-eeTr(3,1) / sqrt(eeTr(3,2)^2 + eeTr(3,3)^2));
+        YeeTr = atan(eeTr(2,1) / eeTr(1,1));
 
-                % Plot final End-Effector position (compare to desiredTr)
+        err(1) = norm(transl(desiredTr) - transl(self.currentTr));
+        err(2) = norm(PdesTr - PeeTr);
+        err(3) = norm(RdesTr - ReeTr);
+        err(4) = norm(YdesTr - YeeTr);
+
+        for i = 1:length(err)
+            if err(i) > self.ikErrorMax
                 plot3(self.currentTr(1,4), ...
                       self.currentTr(2,4), ...
-                      self.currentTr(3,4),'o:r');
-                
-                err = norm(transl(desiredTr) - transl(self.currentTr));
-                if self.ikErrorMax > err
-                    % Goal flag, final pose has been reached within tolerance
-                    disp('Result within IKine max')
-                    goalReached = true;
-                end
+                      self.currentTr(3,4), 'x:r');
+                goalReached = false;
             end
         end
+
+        if goalReached
+            plot3(self.currentTr(1,4), ...
+                  self.currentTr(2,4), ...
+                  self.currentTr(3,4), 'o:g');
+        end
+    end
+end
+
 %-------------------------------------------------------------------------%
-        function qPath = genIKPath(self,desiredTr,profile,coordinateFrame)
+        function qPath = genPath(self,desiredTr,profile,coordinateFrame)
             %Calculating distance and required steps based on current
             %Clock Rate
             eeTr = self.robot.model.fkine(self.robot.model.getpos);
             displ = norm(transl(desiredTr) - transl(eeTr));
             steps = round(displ * self.stepsPerMetre);
-
-            M = [1,1,1,1,1,1];
 
             q0 = self.robot.model.getpos;
             q1 = self.robot.model.ikcon(desiredTr,q0);
@@ -399,20 +444,44 @@ classdef ArmController
                 case 'RMRC'
                     qPath(1,:) = q0;
                     dT = self.velocityMax * GetClockSpeed();
-                    eeTr = self.robot.model.fkine(self.robot.model.getpos).T;
-                    disp(desiredTr)
+                    eeTr = self.robot.model.fkine( ...
+                           self.robot.model.getpos).T;
+                    % disp(desiredTr)
         
                     manip = zeros(1,steps);
                     err = nan(self.jointCount,steps);
-                    
+
+                    PdesTr = atan(desiredTr(3,2)/desiredTr(3,3));
+                    RdesTr = atan(-desiredTr(3,1)/ ...
+                                sqrt(desiredTr(3,2)^2 + desiredTr(3,3)^2));
+                    YdesTr = atan(desiredTr(2,1)/desiredTr(1,1));
+
+                    PeeTr = atan(eeTr(3,2)/eeTr(3,3));
+                    ReeTr = atan(-eeTr(3,1)/ ...
+                                 sqrt(eeTr(3,2)^2 + eeTr(3,3)^2));
+                    YeeTr = atan(eeTr(2,1)/eeTr(1,1));
+
+                    if (desiredTr(3,2) == 0) && (desiredTr(3,3) == 0)
+                        PdesTr = 0;
+                    end
+                    if (desiredTr(2,1) == 0) && (desiredTr(1,1) == 0)
+                        YdesTr = 0;
+                    end
+                    if (eeTr(3,2) == 0) && (eeTr(3,3) == 0)
+                        PeeTr = 0;
+                    end
+                    if (eeTr(2,1) == 0) && (eeTr(1,1) == 0)
+                        YeeTr = 0;
+                    end
+
                     x = linspace(eeTr(1,4),desiredTr(1,4),steps);
                     y = linspace(eeTr(2,4),desiredTr(2,4),steps);
                     z = linspace(eeTr(3,4),desiredTr(3,4),steps);
-                    P = zeros(1,steps);
-                    R = zeros(1,steps);
-                    Y = zeros(1,steps);
+                    P = linspace(PeeTr,PdesTr,steps);
+                    R = linspace(ReeTr,RdesTr,steps);
+                    Y = linspace(YeeTr,YdesTr,steps);
         
-                    X = [x',y',z',P',R',Y']';%%%%%%%%%%%%%
+                    X = [x',y',z',P',R',Y']';
                     X = X(1:self.jointCount,:);
         
                     for i = 1:steps-1
@@ -428,7 +497,9 @@ classdef ArmController
         
                         % Checking if close to singularity
                         if manip(:,i) < self.manipMin
-                            qd = inv(J'*J + 0.01*eye(2))*J' * xd;
+                            qd = inv(J'*J + self.dampedLS* ...
+                                eye(length(J(:,1))))*J' * xd;
+                            %qd = pinv(J) * xd;
                         else
                             qd = inv(J) * xd;
                         end
@@ -445,38 +516,35 @@ classdef ArmController
         end
 %-------------------------------------------------------------------------%
         function calcWorkEnvelope(self)
-            eeArray = cell(1);
-            q = zeros(self.jointCount);
-            jIncr = 1;
-            
-            for i = 1:self.jointCount
-                jLim = self.robot.model.links(i).qlim;
-                jLimMin(i) = jLim(1);
-                jLimMax(i) = jLim(2);
+            qlim = self.robot.model.qlim;
+            stepRads = deg2rad(20);
+            pointCloudeSize = prod(floor((qlim(1:6,2) - ...
+                                   qlim(1:6,1))/stepRads + 1));
+            pointCloud = zeros(pointCloudeSize,3);
+            counter = 1;
+            q = zeros(1,self.jointCount);
 
-                for j = rad2deg(jLimMin(i)):1:rad2deg(jLimMax(i))
-                    q(i) = j;
-                    if i > 1
-                        for k = 1:jIncr
-                            qj = j*(k+1); 
-                            q(i-k) = qj;
-                        end
+            for q1 = qlim(1,1):stepRads:qlim(1,2)
+                for q2 = qlim(2,1):stepRads:qlim(2,2)
+                    for q3 = qlim(3,1):stepRads:qlim(3,2)
+                        q(1) = q1;
+                        q(2) = q2;
+                        q(3) = q3;
+                        tr = self.robot.model.fkine(q).T;
+                        pointCloud(counter,:) = tr(1:3,4)';
+                        counter = counter + 1;
                     end
-                    self.robot.model.animate(q);
-                    drawnow();
-
-                    eeTr = self.robot.model.fkine(self.robot.model.getpos).T;
-
-                    plot3(eeTr(1,4), ...
-                          eeTr(2,4), ...
-                          eeTr(3,4),'.-y');
-
-                    eeArray{end+1} = eeTr;
-
-                    jIncr = jIncr + 1;
-                    pause(0);
                 end
             end
+            centre = mean(pointCloud);
+            distances = sqrt(sum((pointCloud - centre).^2, 2));
+
+            distx = max(sqrt(sum((pointCloud(:,1) - centre(:,1)).^2, 2)));
+            disty = max(sqrt(sum((pointCloud(:,2) - centre(:,2)).^2, 2)));
+            distz = max(sqrt(sum((pointCloud(:,3) - centre(:,3)).^2, 2)));
+            
+            plotRadius = max(distances);
+            plotVolume = (4/3) * pi * plotRadius^3;
         end
 %-------------------------------------------------------------------------%
     end
